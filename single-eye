@@ -1,1 +1,92 @@
 
+#include <U8g2lib.h>
+
+// SH1106 1.3" 128x64 I2C display
+U8G2_SH1106_128X64_NONAME_F_HW_I2C u8g2(U8G2_R0, /* reset=*/ U8X8_PIN_NONE);
+
+// Eye parameters
+#define EYE_CENTER_X 64
+#define EYE_CENTER_Y 32
+#define EYE_RADIUS_X 50
+#define EYE_RADIUS_Y 35
+#define PUPIL_RADIUS 15
+
+// Animation timing
+unsigned long previousMillis = 0;
+const long blinkInterval = 3000;     // Time between blinks (ms)
+const long blinkDuration = 150;      // How fast the blink is (ms)
+bool isBlinking = false;
+unsigned long blinkStartTime = 0;
+
+// Pupil movement (subtle look around)
+int pupilOffsetX = 0;
+int pupilOffsetY = 0;
+unsigned long moveStartTime = 0;
+const long moveInterval = 2000;      // Change direction every 2s
+
+void setup() {
+  u8g2.begin();
+  randomSeed(analogRead(0));  // For random blink variation
+}
+
+void loop() {
+  unsigned long currentMillis = millis();
+
+  // === BLINKING LOGIC ===
+  if (!isBlinking && currentMillis - previousMillis >= blinkInterval + random(-1000, 1000)) {
+    isBlinking = true;
+    blinkStartTime = currentMillis;
+    previousMillis = currentMillis;
+  }
+
+  float eyelidHeight = 0;
+  if (isBlinking) {
+    float blinkProgress = (float)(currentMillis - blinkStartTime) / blinkDuration;
+    if (blinkProgress < 0.5) {
+      eyelidHeight = EYE_RADIUS_Y * 2 * (blinkProgress * 2);  // Close
+    } else {
+      eyelidHeight = EYE_RADIUS_Y * 2 * ((1 - blinkProgress) * 2);  // Open
+    }
+    if (blinkProgress >= 1.0) {
+      isBlinking = false;
+    }
+  }
+
+  // === PUPIL MOVEMENT (subtle look around) ===
+  if (currentMillis - moveStartTime > moveInterval) {
+    pupilOffsetX = random(-12, 13);
+    pupilOffsetY = random(-8, 9);
+    moveStartTime = currentMillis;
+  }
+
+  // === DRAW EYE ===
+  u8g2.clearBuffer();
+
+  // Eye outline (ellipse)
+  u8g2.drawEllipse(EYE_CENTER_X, EYE_CENTER_Y, EYE_RADIUS_X, EYE_RADIUS_Y, U8G2_DRAW_ALL);
+
+  // Blink: draw upper and lower eyelids
+  if (isBlinking && eyelidHeight > 0) {
+    int lidY = EYE_CENTER_Y - EYE_RADIUS_Y + (int)eyelidHeight;
+    u8g2.drawBox(0, 0, 128, lidY);  // Top eyelid
+    u8g2.drawBox(0, lidY + 1, 128, 64 - (lidY + 1));  // Bottom eyelid (optional)
+  } else {
+    // Iris (slightly smaller than eye)
+    u8g2.drawDisc(EYE_CENTER_X + pupilOffsetX, EYE_CENTER_Y + pupilOffsetY, 
+                  PUPIL_RADIUS + 8, U8G2_DRAW_ALL);
+
+    // Pupil
+    u8g2.setDrawColor(0);  // Black fill
+    u8g2.drawDisc(EYE_CENTER_X + pupilOffsetX, EYE_CENTER_Y + pupilOffsetY, 
+                  PUPIL_RADIUS, U8G2_DRAW_ALL);
+    u8g2.setDrawColor(1);  // Back to white
+
+    // Highlight in pupil
+    u8g2.drawDisc(EYE_CENTER_X + pupilOffsetX - 5, EYE_CENTER_Y + pupilOffsetY - 5, 
+                  5, U8G2_DRAW_ALL);
+  }
+
+  u8g2.sendBuffer();
+
+  delay(10);  // Smooth animation
+}
