@@ -1,1 +1,121 @@
 
+#include <U8g2lib.h>
+
+// SH1106 1.3" 128x64 I2C display
+U8G2_SH1106_128X64_NONAME_F_HW_I2C u8g2(U8G2_R0, /* reset=*/ U8X8_PIN_NONE);
+
+/* --------------------------------------------------------------
+   Eye definitions (left / right)
+   -------------------------------------------------------------- */
+#define LEFT_X   42
+#define RIGHT_X  86
+#define EYE_Y    32
+
+struct Eye {
+  uint8_t  irisSize = 10;      // current iris radius
+  int8_t   irisDir  = 1;       // +1 or -1
+  unsigned long lastIris = 0;
+
+  unsigned long lastBlink = 0;
+  uint8_t  blinkStage = 0;     // 0 = open, 1 = closing, 2 = closed, 3 = opening
+  bool     open = true;
+};
+
+Eye leftEye, rightEye;
+
+/* -------------------------------------------------------------- */
+void setup() {
+  u8g2.begin();
+  randomSeed(analogRead(0));   // random blink timing
+  u8g2.setContrast(200);       // optional – adjust brightness
+}
+
+/* -------------------------------------------------------------- */
+void loop() {
+  unsigned long now = millis();
+
+  // ---- update left eye ------------------------------------------------
+  updateEye(leftEye, now, LEFT_X);
+  // ---- update right eye -----------------------------------------------
+  updateEye(rightEye, now, RIGHT_X);
+
+  // ---- draw both eyes -------------------------------------------------
+  u8g2.clearBuffer();
+
+  drawEye(leftEye, LEFT_X);
+  drawEye(rightEye, RIGHT_X);
+
+  u8g2.sendBuffer();
+
+  delay(10);
+}
+
+/* --------------------------------------------------------------
+   Update iris pulse + random blink logic for ONE eye
+   -------------------------------------------------------------- */
+void updateEye(Eye &e, unsigned long now, uint8_t xPos) {
+  // ---- iris pulse (every 50 ms) ---------------------------------------
+  if (now - e.lastIris > 50) {
+    e.lastIris = now;
+    e.irisSize += e.irisDir;
+    if (e.irisSize >= 12 || e.irisSize <= 8) e.irisDir = -e.irisDir;
+  }
+
+  // ---- start a random blink (only when eye is open) -------------------
+  if (e.open && now - e.lastBlink > random(1800, 5200)) {
+    e.lastBlink = now;
+    e.blinkStage = 1;      // start closing
+    e.open = false;
+  }
+
+  // ---- blink state machine --------------------------------------------
+  if (e.blinkStage == 1) {                 // closing
+    delay(70);
+    e.blinkStage = 2;                      // now closed
+  } else if (e.blinkStage == 2) {          // stay closed a moment
+    delay(80);
+    e.blinkStage = 3;                      // start opening
+  } else if (e.blinkStage == 3) {          // opening
+    delay(70);
+    e.blinkStage = 0;                      // fully open again
+    e.open = true;
+  }
+}
+
+/* --------------------------------------------------------------
+   Draw ONE eye (sclera, iris, pupil, highlight, eyelids)
+   -------------------------------------------------------------- */
+void drawEye(const Eye &e, uint8_t cx) {
+  const uint8_t scleraRadius = 20;          // fixed white part
+
+  // ---- sclera (only when open) ---------------------------------------
+  if (e.open || e.blinkStage == 3) {
+    u8g2.drawDisc(cx, EYE_Y, scleraRadius, U8G2_DRAW_ALL);
+    // subtle inner shadow
+    u8g2.drawDisc(cx, EYE_Y, scleraRadius - 2,
+                  U8G2_DRAW_UPPER_LEFT | U8G2_DRAW_UPPER_RIGHT);
+  }
+
+  // ---- iris -----------------------------------------------------------
+  if (e.irisSize > 0) {
+    u8g2.drawFilledEllipse(cx, EYE_Y, e.irisSize, e.irisSize + 1, U8G2_DRAW_ALL);
+
+    // glossy highlight (small white dot)
+    u8g2.drawDisc(cx - e.irisSize / 2 + 1,
+                  EYE_Y - e.irisSize / 2 - 1,
+                  3, U8G2_DRAW_ALL);
+
+    // pupil (black center)
+    u8g2.drawDisc(cx, EYE_Y, e.irisSize - 4, U8G2_DRAW_ALL);
+  }
+
+  // ---- eyelids (smooth close/open) ------------------------------------
+  if (e.blinkStage == 1 || e.blinkStage == 2) {          // closing / closed
+    // top eyelid coming down
+    u8g2.drawFilledEllipse(cx, EYE_Y - 10, 22, 15,
+                           U8G2_DRAW_LOWER_LEFT | U8G2_DRAW_LOWER_RIGHT);
+    // bottom eyelid coming up
+    u8g2.drawFilledEllipse(cx, EYE_Y + 10, 22, 15,
+                           U8G2_DRAW_UPPER_LEFT | U8G2_DRAW_UPPER_RIGHT);
+  }
+}
